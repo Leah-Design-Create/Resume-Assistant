@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>简历管理 - 后台</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px; background: #f8fafc; }
+    h1 { font-size: 1.25rem; color: #0f172a; margin-bottom: 8px; }
+    .tip { font-size: 0.8125rem; color: #64748b; margin-bottom: 20px; }
+    .card { background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .card span { font-weight: 600; color: #334155; }
+    .card small { display: block; font-size: 0.75rem; color: #94a3b8; margin-top: 2px; }
+    .card-actions { display: flex; gap: 8px; }
+    .btn { padding: 6px 12px; border-radius: 8px; font-size: 0.8125rem; cursor: pointer; border: none; }
+    .btn-danger { background: #fef2f2; color: #dc2626; }
+    .btn-danger:hover { background: #fee2e2; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .upload-area { margin-top: 20px; padding: 20px; background: #fff; border: 1px dashed #cbd5e1; border-radius: 12px; text-align: center; }
+    .upload-area input[type="file"] { margin-top: 8px; }
+    .data-path { margin-top: 24px; font-size: 0.75rem; color: #94a3b8; }
+    .empty { color: #94a3b8; padding: 24px; text-align: center; }
+    .err { color: #dc2626; font-size: 0.875rem; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>简历管理</h1>
+  <p class="tip">数据保存在项目目录下的 data/resumes.json，不是数据库，是 JSON 文件。此处可查看、删除、上传 PDF。</p>
+
+  <div id="list"></div>
+
+  <div class="upload-area">
+    <div>上传 PDF 简历（识别后自动入库）</div>
+    <input type="file" id="pdf" accept=".pdf,application/pdf" />
+    <div id="uploadErr" class="err"></div>
+  </div>
+
+  <p class="data-path">数据文件：<code>data/resumes.json</code>（可直接用编辑器打开查看或备份）</p>
+
+  <script>
+    const listEl = document.getElementById('list');
+    const pdfEl = document.getElementById('pdf');
+    const uploadErrEl = document.getElementById('uploadErr');
+
+    function load() {
+      fetch('/api/resumes').then(r => r.json()).then(resumes => {
+        if (!resumes.length) {
+          listEl.innerHTML = '<div class="empty">暂无简历，请上传 PDF 或在前台添加。</div>';
+          return;
+        }
+        listEl.innerHTML = resumes.map(r => `
+          <div class="card">
+            <div>
+              <span>${escapeHtml(r.name)}</span>
+              <small>${escapeHtml(r.title)} · ${r.id}</small>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-danger" data-id="${escapeHtml(r.id)}" data-name="${escapeHtml(r.name)}">删除</button>
+            </div>
+          </div>
+        `).join('');
+        listEl.querySelectorAll('.btn-danger').forEach(btn => {
+          btn.onclick = () => {
+            if (!confirm('确定删除「' + btn.dataset.name + '」？')) return;
+            fetch('/api/resumes/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' })
+              .then(r => { if (r.ok) load(); else return r.json().then(e => alert(e.error || '删除失败')); });
+          };
+        });
+      }).catch(() => { listEl.innerHTML = '<div class="err">无法连接后端，请确认服务已启动（npm run server）。</div>'; });
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    pdfEl.onchange = async () => {
+      const file = pdfEl.files[0];
+      pdfEl.value = '';
+      uploadErrEl.textContent = '';
+      if (!file) return;
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        const r = await fetch('/api/resumes/upload', { method: 'POST', body: form });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { uploadErrEl.textContent = data.error || '上传失败'; return; }
+        load();
+        uploadErrEl.textContent = '已识别并保存：' + (data.candidate?.name || '');
+        uploadErrEl.style.color = '#16a34a';
+      } catch (e) {
+        uploadErrEl.textContent = e.message || '上传失败';
+      }
+    };
+
+    load();
+  </script>
+</body>
+</html>
