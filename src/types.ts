@@ -34,6 +34,8 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   project?: Project;
+  /** 项目经验时返回全部项目列表 */
+  projects?: Project[];
 }
 
 export interface Suggestion {

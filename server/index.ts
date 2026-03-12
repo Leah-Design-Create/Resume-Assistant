@@ -148,8 +148,8 @@ app.post('/api/resumes/upload', upload.single('file'), async (req, res) => {
 - candidate 包含：name, title(求职意向), highestDegree(最高学历，如硕士/本科/博士), degreeSchool(最高学历毕业学校), location, experienceYears(字符串如"8+"), coreProjects(数字), deliveryRate(字符串如"100%"), skills(字符串数组), capabilities(数组，每项{name,level}，level为0-100数字), avatarUrl(无则用空字符串)
 - 其中 name 必须是候选人真实姓名：若简历中有明显的中文姓名（如顶部或左侧大号字体的「霍璐华」等），必须用该中文姓名；禁止把微信号、微信名、英文昵称或邮箱前缀当作 name。
 - title 填求职意向（如「用户研究工程师」）；highestDegree 填最高学历；degreeSchool 填该学历对应的学校。
-- projects 为数组，每项包含：id(简短英文), title, description, tags(字符串数组), impact(字符串如"35%"), imageUrl(无则空字符串), docUrl(无则"#")
-若原文中某项缺失，用合理默认值。只输出合法 JSON。`;
+- projects 为数组，每项包含：id(简短英文), title, description, tags(字符串数组), impact(有则填如"35%"，无则留空字符串不要填N/A), imageUrl(一律留空字符串), docUrl(一律填"#")
+- 不要输出 impact 为 N/A；不要输出项目配图区块。只输出合法 JSON。`;
 
     const response = await fetch(DASHSCOPE_URL, {
       method: 'POST',
@@ -239,12 +239,14 @@ function normalizeCandidate(c: unknown): Candidate {
 
 function normalizeProject(p: unknown): Project {
   const o = (p && typeof p === 'object' ? p : {}) as Record<string, unknown>;
+  let impact = String(o.impact ?? '').trim();
+  if (impact.toUpperCase() === 'N/A') impact = '';
   return {
     id: String(o.id ?? `p-${Date.now()}`),
     title: String(o.title ?? ''),
     description: String(o.description ?? ''),
     tags: Array.isArray(o.tags) ? o.tags.map(String) : [],
-    impact: String(o.impact ?? ''),
+    impact,
     imageUrl: String(o.imageUrl ?? ''),
     docUrl: String(o.docUrl ?? '#')
   };
@@ -263,14 +265,14 @@ app.post('/api/chat', async (req, res) => {
     return res.status(400).json({ content: '请先选择或添加一份简历。' });
   }
 
-  const { candidate, projects } = resume;
+  const { candidate, projects, rawText } = resume;
   const isProjectQuery =
     /项目|介绍|经历|做过|参与|负责/.test(text) && !/公司|工作|到岗|时间|技能|能力/.test(text);
 
   if (isProjectQuery && projects.length > 0) {
     return res.json({
-      content: '这是我最近参与的一个核心项目：',
-      project: projects[0] as Project
+      content: '以下是我的项目经验：',
+      projects: projects as Project[]
     });
   }
 
@@ -286,7 +288,11 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const systemPrompt = `你是${candidate.name}的数字助手。他是${candidate.title}。请根据以下候选人信息，用中文回答用户关于该候选人的问题。\n候选人信息：${JSON.stringify(candidate)}`;
+    let systemPrompt = `你是${candidate.name}的数字助手。他是${candidate.title}。请根据以下候选人信息，用中文回答用户关于该候选人的问题。\n候选人信息：${JSON.stringify(candidate)}`;
+    if (rawText && rawText.trim()) {
+      systemPrompt += `\n\n以下是简历原文（含实习经历、项目经历等），回答时请严格依据原文：\n---\n${rawText.slice(0, 8000)}\n---`;
+      systemPrompt += `\n\n重要：当用户询问「公司经历」或「实习经历」时，只根据上文简历原文中的「实习经历」部分回答，直接列实习经历内容（公司、时间、职责等），不要添加任何概括性开场白（例如不要写「目前是…」「拥有…经验」「未披露其具体就职公司名称」等），不要推测或补充原文没有的信息。`;
+    }
     const response = await fetch(DASHSCOPE_URL, {
       method: 'POST',
       headers: {

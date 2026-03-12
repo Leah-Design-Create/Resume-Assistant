@@ -222,12 +222,12 @@ export default function App() {
     setIsTyping(true);
 
     try {
-      const { content, project } = await sendChatMessage(text, currentResumeId);
+      const { content, project, projects } = await sendChatMessage(text, currentResumeId);
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content,
-        ...(project && { project })
+        ...(projects?.length ? { projects } : project ? { project } : {})
       };
       setMessages(prev => [...prev, aiMessage]);
     } catch (error) {
@@ -518,41 +518,51 @@ export default function App() {
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                     </div>
 
-                    {msg.project && (
-                      <motion.div 
+                    {(msg.projects?.length ? msg.projects : msg.project ? [msg.project] : []).map((proj) => (
+                      <motion.div
+                        key={proj.id}
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         className="mt-3 bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden"
                       >
                         <div className="p-4 space-y-4">
                           <div className="flex items-center justify-between">
-                            <h3 className="font-bold text-slate-900">{msg.project.title}</h3>
-                            <span className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <TrendingUp size={12} /> {msg.project.impact}
-                            </span>
+                            <h3 className="font-bold text-slate-900">{proj.title}</h3>
+                            {proj.impact && String(proj.impact).toUpperCase() !== 'N/A' && (
+                              <span className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <TrendingUp size={12} /> {proj.impact}
+                              </span>
+                            )}
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            {msg.project.tags.map(tag => (
+                            {proj.tags.map(tag => (
                               <span key={tag} className="px-2 py-1 bg-slate-50 text-[10px] font-bold text-slate-500 rounded uppercase">{tag}</span>
                             ))}
                           </div>
                           <p className="text-sm text-slate-500 leading-relaxed">
-                            {msg.project.description}
+                            {proj.description}
                           </p>
-                          <div className="h-40 w-full rounded-xl bg-slate-50 overflow-hidden">
-                            <img 
-                              src={msg.project.imageUrl} 
-                              alt={msg.project.title} 
-                              className="w-full h-full object-cover opacity-90"
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
-                          <button className="w-full py-2.5 bg-slate-50 text-blue-600 text-xs font-bold rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-2">
+                          {proj.imageUrl && (
+                            <div className="h-40 w-full rounded-xl bg-slate-50 overflow-hidden">
+                              <img 
+                                src={proj.imageUrl} 
+                                alt={proj.title} 
+                                className="w-full h-full object-cover opacity-90"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                          )}
+                          <a
+                            href={proj.docUrl || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full py-2.5 bg-slate-50 text-blue-600 text-xs font-bold rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-2 border border-transparent hover:border-slate-200"
+                          >
                             查看完整项目文档 <ExternalLink size={14} />
-                          </button>
+                          </a>
                         </div>
                       </motion.div>
-                    )}
+                    ))}
                   </div>
 
                   {msg.role === 'user' && (
