@@ -38,8 +38,13 @@
    - `DASHSCOPE_API_KEY` = 你的阿里云百炼 API Key
    - `DASHSCOPE_MODEL` = `qwen-plus`（或你用的模型）
    - `FRONTEND_ORIGIN` = 先填 `https://your-app.vercel.app`，等 Vercel 部署好后改成你的**真实前端地址**（见下面第三步）。
-6. 点 **Create Web Service**，等部署完成。
-7. 在 Render 面板顶部会看到你的服务地址，例如：  
+6. **（推荐）添加 PostgreSQL 以持久化简历数据**：否则 Render 休眠/重启后 `data/` 会清空，分享链接可能变回默认简历。
+   - 在 Render 同一账号下点击 **New** → **PostgreSQL**，创建免费数据库（如 `resume-bot-db`）。
+   - 创建完成后在数据库详情页复制 **Internal Database URL**（或 **External Database URL**，若 Web Service 与 DB 不在同一区域可用 External）。
+   - 回到你的 Web Service → **Environment**，添加变量：`DATABASE_URL` = 粘贴该 URL。
+   - 保存后 Render 会重新部署，之后简历与 PDF 会存入数据库，重启后数据不丢失。
+7. 点 **Create Web Service**，等部署完成。
+8. 在 Render 面板顶部会看到你的服务地址，例如：  
    `https://resume-bot-api.onrender.com`  
    **复制这个地址**，后面 Vercel 要用（不要带末尾斜杠）。
 
@@ -86,7 +91,7 @@
 ## 注意事项
 
 1. **休眠**：Render 免费服务约 15 分钟无访问会休眠，HR 首次打开可能要等 30 秒～1 分钟，属正常现象。
-2. **数据**：免费实例重启或长时间休眠后，`data/` 里的文件（如简历 JSON、上传的 PDF）有可能被清空，重要数据请本地备份；若需要持久化可考虑升级或换用数据库。
+2. **数据**：若未配置 `DATABASE_URL`，免费实例重启或长时间休眠后，`data/` 里的文件有可能被清空，分享链接可能变回默认简历。**配置 Render 的 PostgreSQL 并设置 `DATABASE_URL` 后，简历与 PDF 会持久化到数据库，不再丢失。** 详细步骤见 [docs/配置数据库持久化.md](docs/配置数据库持久化.md)。
 3. **密钥**：`DASHSCOPE_API_KEY` 等只填在 Render 的 Environment Variables 里，不要写进代码或提交到 GitHub。
 
 按上述步骤做完后，就是「插入不同简历 → 复制当前链接给 HR → 他们点开网址看到对应简历的机器人页面」的完全免费部署方式。

@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
@@ -7,14 +6,9 @@ import multer from 'multer';
 import type { Candidate, Project } from './data';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import { listResumes, getResume, createResume, updateResume, getFirstResumeId, deleteResume } from './store';
+import { listResumes, getResume, createResume, updateResume, getFirstResumeId, deleteResume, saveResumePdf, getResumePdf } from './store';
 import { extractTextFromPdf } from './pdf';
 import { cropResumeFaceToAvatar, cropAvatarFromFaceBox } from './avatarCrop';
-
-const DATA_UPLOADS = path.join(process.cwd(), 'data', 'uploads');
-function getUploadedPdfPath(resumeId: string): string {
-  return path.join(DATA_UPLOADS, `${resumeId}.pdf`);
-}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -44,28 +38,28 @@ app.get('/admin', (_req, res) => {
 });
 
 // 兼容旧接口：无 resumeId 时返回第一份简历
-app.get('/api/candidate', (req, res) => {
-  const id = req.query.resumeId as string | undefined || getFirstResumeId();
-  const resume = id ? getResume(id) : undefined;
+app.get('/api/candidate', async (req, res) => {
+  const id = (req.query.resumeId as string | undefined) || (await getFirstResumeId());
+  const resume = id ? await getResume(id) : undefined;
   if (!resume) return res.status(404).json({ error: '暂无简历' });
   res.json(resume.candidate);
 });
 
-app.get('/api/projects', (req, res) => {
-  const id = req.query.resumeId as string | undefined || getFirstResumeId();
-  const resume = id ? getResume(id) : undefined;
+app.get('/api/projects', async (req, res) => {
+  const id = (req.query.resumeId as string | undefined) || (await getFirstResumeId());
+  const resume = id ? await getResume(id) : undefined;
   if (!resume) return res.status(404).json({ error: '暂无简历' });
   res.json(resume.projects);
 });
 
 // 简历列表（用于下拉选择）
-app.get('/api/resumes', (_req, res) => {
-  res.json(listResumes());
+app.get('/api/resumes', async (_req, res) => {
+  res.json(await listResumes());
 });
 
 // 单份简历详情（候选人 + 项目 + 识别原文/页图）
-app.get('/api/resumes/:id', (req, res) => {
-  const resume = getResume(req.params.id);
+app.get('/api/resumes/:id', async (req, res) => {
+  const resume = await getResume(req.params.id);
   if (!resume) return res.status(404).json({ error: '简历不存在' });
   res.json({
     candidate: resume.candidate,
@@ -76,60 +70,52 @@ app.get('/api/resumes/:id', (req, res) => {
 });
 
 // 下载原始上传的 PDF（仅上传过的简历有此文件）
-app.get('/api/resumes/:id/download', (req, res) => {
-  const resume = getResume(req.params.id);
+app.get('/api/resumes/:id/download', async (req, res) => {
+  const resume = await getResume(req.params.id);
   if (!resume) return res.status(404).json({ error: '简历不存在' });
-  const filePath = getUploadedPdfPath(req.params.id);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: '该简历无上传的 PDF' });
+  const pdfBuffer = await getResumePdf(req.params.id);
+  if (!pdfBuffer) return res.status(404).json({ error: '该简历无上传的 PDF' });
   const filename = `${resume.candidate.name}-简历.pdf`;
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-  try {
-    res.sendFile(path.resolve(filePath));
-  } catch (err) {
-    console.error('下载 PDF 失败:', err);
-    if (!res.headersSent) res.status(500).json({ error: '读取 PDF 文件失败' });
-  }
+  res.send(pdfBuffer);
 });
 
 // 更新当前简历头像（PATCH 或 POST /avatar，body: { avatarUrl: string }）
-function updateResumeAvatarHandler(req: express.Request, res: express.Response): void {
+async function updateResumeAvatarHandler(req: express.Request, res: express.Response): Promise<void> {
   const id = req.params.id;
-  const resume = getResume(id);
-  if (!resume) return res.status(404).json({ error: '简历不存在' });
+  const resume = await getResume(id);
+  if (!resume) return void res.status(404).json({ error: '简历不存在' });
   const { avatarUrl } = req.body || {};
-  if (typeof avatarUrl !== 'string') return res.status(400).json({ error: '需要 avatarUrl 字符串' });
-  const updated = updateResume(id, { ...resume.candidate, avatarUrl }, resume.projects);
-  if (!updated) return res.status(404).json({ error: '简历不存在' });
+  if (typeof avatarUrl !== 'string') return void res.status(400).json({ error: '需要 avatarUrl 字符串' });
+  const updated = await updateResume(id, { ...resume.candidate, avatarUrl }, resume.projects);
+  if (!updated) return void res.status(404).json({ error: '简历不存在' });
   res.json(updated);
 }
 app.patch('/api/resumes/:id', updateResumeAvatarHandler);
 app.post('/api/resumes/:id/avatar', updateResumeAvatarHandler);
 
-// 删除简历（同时删除已保存的原始 PDF）
-app.delete('/api/resumes/:id', (req, res) => {
+// 删除简历（同时删除已保存的原始 PDF；DB 模式下 PDF 随 CASCADE 删除）
+app.delete('/api/resumes/:id', async (req, res) => {
   const id = req.params.id;
-  const ok = deleteResume(id);
+  const ok = await deleteResume(id);
   if (!ok) return res.status(404).json({ error: '简历不存在' });
-  const filePath = getUploadedPdfPath(id);
-  try {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-  } catch (_) {}
   res.status(204).send();
 });
 
 // 新增简历
-app.post('/api/resumes', (req, res) => {
+app.post('/api/resumes', async (req, res) => {
   const { candidate, projects } = req.body || {};
   if (!candidate || !Array.isArray(projects)) {
     return res.status(400).json({ error: '需要 candidate 和 projects 数组' });
   }
-  const resume = createResume(candidate as Candidate, projects as Project[]);
+  const resume = await createResume(candidate as Candidate, projects as Project[]);
   res.status(201).json(resume);
 });
 
 // 上传 PDF 简历：识别文字 + AI 结构化，存入简历并返回
 app.post('/api/resumes/upload', upload.single('file'), async (req, res) => {
+  console.log('[Upload] PDF 上传请求已收到');
   if (!req.file?.buffer) {
     return res.status(400).json({ error: '请上传 PDF 文件（字段名 file）' });
   }
@@ -186,7 +172,12 @@ app.post('/api/resumes/upload', upload.single('file'), async (req, res) => {
             typeof faceBox.width === 'number' && typeof faceBox.height === 'number' &&
             faceBox.width > 0 && faceBox.height > 0
           ) {
-            cropped = await cropAvatarFromFaceBox(firstPageImage, faceBox);
+            cropped = await cropAvatarFromFaceBox(firstPageImage, {
+              x: faceBox.x,
+              y: faceBox.y,
+              width: faceBox.width,
+              height: faceBox.height
+            });
           }
         } catch (_) {}
       }
@@ -196,13 +187,13 @@ app.post('/api/resumes/upload', upload.single('file'), async (req, res) => {
       candidate.avatarUrl = cropped ?? '';
     }
     const projects = Array.isArray(parsed.projects) ? parsed.projects.map(normalizeProject) : [];
-    const resume = createResume(candidate, projects, { rawText });
+    const resume = await createResume(candidate, projects, { rawText });
     try {
-      if (!fs.existsSync(DATA_UPLOADS)) fs.mkdirSync(DATA_UPLOADS, { recursive: true });
-      fs.writeFileSync(getUploadedPdfPath(resume.id), req.file!.buffer);
+      await saveResumePdf(resume.id, req.file!.buffer);
     } catch (e) {
       console.error('保存原始 PDF 失败:', e);
     }
+    console.log('[Upload] 简历已保存 id=%s name=%s 使用数据库=%s', resume.id, resume.candidate?.name, !!process.env.DATABASE_URL);
     res.status(201).json({
       id: resume.id,
       candidate: resume.candidate,
@@ -255,12 +246,12 @@ function normalizeProject(p: unknown): Project {
 // 聊天：按 resumeId 使用对应简历内容
 app.post('/api/chat', async (req, res) => {
   const text = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
-  const resumeId = typeof req.body?.resumeId === 'string' ? req.body.resumeId : getFirstResumeId();
+  const resumeId = typeof req.body?.resumeId === 'string' ? req.body.resumeId : (await getFirstResumeId());
   if (!text) {
     return res.status(400).json({ error: 'message 不能为空' });
   }
 
-  const resume = resumeId ? getResume(resumeId) : undefined;
+  const resume = resumeId ? await getResume(resumeId) : undefined;
   if (!resume) {
     return res.status(400).json({ content: '请先选择或添加一份简历。' });
   }
@@ -347,4 +338,5 @@ app.post('/api/chat', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   console.log(`后台管理: http://localhost:${PORT}/admin`);
+  console.log(`数据存储: ${process.env.DATABASE_URL ? 'PostgreSQL 数据库' : '本地文件 data/resumes.json'}`);
 });
