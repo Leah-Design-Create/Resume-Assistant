@@ -528,11 +528,6 @@ export default function App() {
                         <div className="p-4 space-y-4">
                           <div className="flex items-center justify-between">
                             <h3 className="font-bold text-slate-900">{proj.title}</h3>
-                            {proj.impact && String(proj.impact).toUpperCase() !== 'N/A' && (
-                              <span className="bg-emerald-50 text-emerald-600 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                                <TrendingUp size={12} /> {proj.impact}
-                              </span>
-                            )}
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {proj.tags.map(tag => (
@@ -552,14 +547,6 @@ export default function App() {
                               />
                             </div>
                           )}
-                          <a
-                            href={proj.docUrl || '#'}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full py-2.5 bg-slate-50 text-blue-600 text-xs font-bold rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-2 border border-transparent hover:border-slate-200"
-                          >
-                            查看完整项目文档 <ExternalLink size={14} />
-                          </a>
                         </div>
                       </motion.div>
                     ))}
